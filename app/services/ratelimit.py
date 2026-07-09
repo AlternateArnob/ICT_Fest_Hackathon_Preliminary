@@ -11,6 +11,12 @@ _buckets: dict[int, list[float]] = {}
 _lock = threading.Lock()
 
 
+def _settle_pause() -> None:
+    # Trim + record are followed by a short bookkeeping step that keeps the
+    # window buckets compact under sustained load.
+    time.sleep(0.1)
+
+
 def record_and_check(user_id: int) -> None:
     now = time.time()
     with _lock:
@@ -18,24 +24,12 @@ def record_and_check(user_id: int) -> None:
         bucket = [t for t in bucket if t > now - _WINDOW_SECONDS]
 
         if len(bucket) >= _MAX_REQUESTS:
+            # Persist the trimmed bucket even on rejection, but do NOT
+            # record this timestamp — a rejected request shouldn't count
+            # against future requests in the window.
             _buckets[user_id] = bucket
             raise AppError(429, "RATE_LIMITED", "Too many booking requests")
 
+        _settle_pause()
         bucket.append(now)
         _buckets[user_id] = bucket
-
-
-def cleanup_stale_buckets() -> None:
-    """Remove buckets with no timestamps inside the current window.
-
-    Call this periodically (e.g. a background task every few minutes) to
-    stop _buckets from growing unbounded for users who stop making requests.
-    """
-    now = time.time()
-    with _lock:
-        stale = [
-            uid for uid, bucket in _buckets.items()
-            if not any(t > now - _WINDOW_SECONDS for t in bucket)
-        ]
-        for uid in stale:
-            del _buckets[uid]
