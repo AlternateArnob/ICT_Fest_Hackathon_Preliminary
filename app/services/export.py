@@ -19,17 +19,8 @@ EXPORT_HEADER = [
 ]
 
 
-def fetch_bookings_raw(db: Session, room_id: int) -> list[Booking]:
-    """Load every booking for a single room, ordered by id."""
-    return (
-        db.query(Booking)
-        .filter(Booking.room_id == room_id)
-        .order_by(Booking.id.asc())
-        .all()
-    )
-
-
 def _fetch_scoped(db: Session, org_id: int, user_id: int | None, room_id: int | None) -> list[Booking]:
+    """Load bookings, always scoped to org_id, optionally filtered by user/room."""
     query = db.query(Booking).join(Room).filter(Room.org_id == org_id)
     if user_id is not None:
         query = query.filter(Booking.user_id == user_id)
@@ -46,10 +37,9 @@ def generate_export(
     include_all: bool,
 ) -> str:
     if include_all:
-        if room_id is not None:
-            rows = fetch_bookings_raw(db, room_id)
-        else:
-            rows = _fetch_scoped(db, org_id, None, None)
+        # Admins can see all users' bookings within their org,
+        # optionally narrowed to a single room — but always org-scoped.
+        rows = _fetch_scoped(db, org_id, None, room_id)
     else:
         rows = _fetch_scoped(db, org_id, user_id, room_id)
 

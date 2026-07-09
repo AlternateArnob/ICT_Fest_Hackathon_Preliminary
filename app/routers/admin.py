@@ -1,5 +1,5 @@
 """Administrative reporting and export endpoints."""
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
@@ -32,8 +32,11 @@ def usage_report(
     except ValueError:
         raise AppError(400, "INVALID_BOOKING_WINDOW", "Invalid date range")
 
-    range_start = datetime.combine(from_date, time.min)
-    range_end = datetime.combine(to_date + timedelta(days=1), time.min)
+    if from_date > to_date:
+        raise AppError(400, "INVALID_BOOKING_WINDOW", "'from' must not be after 'to'")
+
+    range_start = datetime.combine(from_date, time.min, tzinfo=timezone.utc)
+    range_end = datetime.combine(to_date + timedelta(days=1), time.min, tzinfo=timezone.utc)
 
     rooms = db.query(Room).filter(Room.org_id == admin.org_id).order_by(Room.id.asc()).all()
     room_rows = []
@@ -70,4 +73,8 @@ def export(
     admin: User = Depends(require_admin),
 ):
     csv_body = generate_export(db, admin.org_id, admin.id, room_id, include_all)
-    return Response(content=csv_body, media_type="text/csv")
+    return Response(
+        content=csv_body,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=bookings_export.csv"},
+    )
